@@ -65,7 +65,7 @@ function Get-GitIgnoreContent {
             "# Python"
             "__pycache__/"
             "*.py[cod]"
-            "*$py.class"
+            "*.pyc"
             ".Python"
             ".env/"
             ".venv/"
@@ -144,9 +144,14 @@ function Initialize-Repository {
 
     # Initialize local repository
     Write-Host "Initializing local repository..." -ForegroundColor Cyan
-    git init
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to initialize local repository."
+    if (-not (Test-Path ".git")) {
+        git init
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to initialize local repository."
+        }
+        Write-Host "✓ Local repository initialized successfully" -ForegroundColor Green
+    } else {
+        Write-Host "✓ Local repository already exists" -ForegroundColor Green
     }
 
     # Check for source files
@@ -166,6 +171,7 @@ function Initialize-Repository {
         $gitignoreContent = "$existingContent`n$gitignoreContent"
     }
     $gitignoreContent | Set-Content ".gitignore" -Force
+    Write-Host "✓ .gitignore file created/updated successfully" -ForegroundColor Green
 
     # Stage and commit changes
     Write-Host "Staging and committing changes..." -ForegroundColor Cyan
@@ -173,19 +179,29 @@ function Initialize-Repository {
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to stage changes."
     }
+    Write-Host "✓ Changes staged successfully" -ForegroundColor Green
 
     git commit -m "Initial commit"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to commit changes."
     }
+    Write-Host "✓ Initial commit created successfully" -ForegroundColor Green
 
     # Set up remote and push
     Write-Host "Setting up remote and pushing..." -ForegroundColor Cyan
-    git remote add origin "https://github.com/$githubUser/$ProjectName.git"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to add remote."
+
+    # Add remote
+    if (-not (git remote | Where-Object { $_ -eq "origin" })) {
+        git remote add origin "https://github.com/$githubUser/$ProjectName.git"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to add remote."
+        }
+        Write-Host "✓ Remote added successfully" -ForegroundColor Green
+    } else {
+        Write-Host "✓ Remote already exists" -ForegroundColor Green
     }
 
+    # Determine default branch
     try {
         $defaultBranch = gh repo view "$githubUser/$ProjectName" --json defaultBranchRef --jq '.defaultBranchRef.name'
         if (-not $defaultBranch) {
@@ -194,24 +210,32 @@ function Initialize-Repository {
     } catch {
         $defaultBranch = 'main'
     }
+
+    # Rename local branch if needed
+    $currentBranch = git branch --show-current
+    if ($currentBranch -ne $defaultBranch) {
+        Write-Host "Renaming local branch from '$currentBranch' to '$defaultBranch'..." -ForegroundColor Yellow
+        git branch -m $defaultBranch
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to rename branch to '$defaultBranch'"
+        }
+        Write-Host "✓ Branch renamed to '$defaultBranch' successfully" -ForegroundColor Green
+    }
+
+    # Push changes
+    Write-Host "Pushing changes to $defaultBranch branch..." -ForegroundColor Cyan
     git push -u origin $defaultBranch
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to push to remote repository."
     }
-
-    Write-Host "`nRepository successfully initialized!" -ForegroundColor Green
-    Write-Host "Repository URL: https://github.com/$githubUser/$ProjectName" -ForegroundColor Green
-
-    # Optional IDE launch commands (commented out by default)
-    # Write-Host "`nUncomment these lines in the script to automatically launch your preferred IDE:" -ForegroundColor Yellow
-    # code .
-    # idea .
+    Write-Host "Changes pushed successfully to $defaultBranch branch" -ForegroundColor Green
+    Write-Host "Repository initialized at: https://github.com/$githubUser/$ProjectName" -ForegroundColor Green
 }
 
-# Main execution
 try {
     Initialize-Repository
-} catch {
-    Write-Host "Error: $_" -ForegroundColor Red
+}
+catch {
+    Write-Error $_.Exception.Message
     exit 1
 }

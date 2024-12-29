@@ -16,8 +16,17 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidatePattern('^[a-zA-Z0-9-_\.]+$')]
-    [string]$ProjectName = $((Get-Location | Split-Path -Leaf))
+[ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-._]*[a-zA-Z0-9]$')]
+[ValidateScript({
+    if ($_ -match '\.\.') {
+        throw "Repository name cannot contain consecutive dots"
+    }
+    if ($_ -match '\.$') {
+        throw "Repository name cannot end with a dot"
+    }
+    return $true
+})]
+[string]$ProjectName = $((Get-Location | Split-Path -Leaf))
 )
 
 # Error handling preference
@@ -103,7 +112,9 @@ function Initialize-Repository {
     git config --global --add safe.directory $PWD
 
     if (-not (Test-CommandExists "gh")) {
-        throw "GitHub CLI is not installed. Please install GitHub CLI and try again."
+        Write-Host "GitHub CLI is not installed." -ForegroundColor Red
+        Write-Host "Please install GitHub CLI from https://cli.github.com/" -ForegroundColor Yellow
+        throw "GitHub CLI installation required"
     }
 
     # Check GitHub authentication
@@ -136,7 +147,9 @@ function Initialize-Repository {
     } catch {
         # Repository doesn't exist, create it
         Write-Host "Creating new repository..." -ForegroundColor Cyan
-        gh repo create "$githubUser/$ProjectName" --public --confirm
+        $isPrivate = Read-Host "Create private repository? (y/N)"
+        $privateFlag = if ($isPrivate -eq 'y') { '--private' } else { '--public' }
+        gh repo create "$githubUser/$ProjectName" $privateFlag --confirm
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to create repository."
         }
@@ -209,6 +222,14 @@ function Initialize-Repository {
         }
     } catch {
         $defaultBranch = 'main'
+    }
+
+    # Verify branch exists
+    if (-not (git branch --list $defaultBranch)) {
+        git branch $defaultBranch
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create default branch '$defaultBranch'"
+        }
     }
 
     # Rename local branch if needed

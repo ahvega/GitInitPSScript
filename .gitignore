@@ -7,3 +7,8 @@ Thumbs.db
 Thumbs.db
 *.log
 .env
+
+.DS_Store
+Thumbs.db
+*.log
+.env

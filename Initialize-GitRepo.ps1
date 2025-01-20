@@ -16,54 +16,57 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-[ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-._]*[a-zA-Z0-9]$')]
-[ValidateScript({
-    if ($_ -match '\.\.') {
-        throw "Repository name cannot contain consecutive dots"
-    }
-    if ($_ -match '\.$') {
-        throw "Repository name cannot end with a dot"
-    }
-    return $true
-})]
-[string]$ProjectName = $((Get-Location | Split-Path -Leaf))
+    [ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-._]*[a-zA-Z0-9]$')]
+    [ValidateScript({
+        if ($_ -match '\.\.') {
+            throw "Repository name cannot contain consecutive dots"
+        }
+        if ($_ -match '\.$') {
+            throw "Repository name cannot end with a dot"
+        }
+        return $true
+    })]
+    [string]$ProjectName = $((Get-Location | Split-Path -Leaf))
 )
 
 # Error handling preference
 $ErrorActionPreference = "Stop"
 
-Write-Host "Project name (default: $((Get-Location | Split-Path -Leaf))): " -NoNewline
-$userInput = Read-Host
-if ([string]::IsNullOrWhiteSpace($userInput)) {
-    $ProjectName = Get-Location | Split-Path -Leaf
-}
-else {
-    $ProjectName = $userInput
+# Logging function
+function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "[$timestamp] [$Level] $Message"
 }
 
+# Check if a command exists
 function Test-CommandExists {
     param($Command)
     $null -ne (Get-Command -Name $Command -ErrorAction SilentlyContinue)
 }
 
+# Generate .gitignore content based on project type
 function Get-GitIgnoreContent {
     $ignorePatterns = @()
 
     # Generic patterns
     $ignorePatterns += @(
-        ".DS_Store"
-        "Thumbs.db"
-        "*.log"
+        ".DS_Store",
+        "Thumbs.db",
+        "*.log",
         ".env"
     )
 
     # Node.js
     if (Test-Path "package.json") {
         $ignorePatterns += @(
-            "# Node.js"
-            "node_modules/"
-            "npm-debug.log*"
-            "yarn-debug.log*"
+            "# Node.js",
+            "node_modules/",
+            "npm-debug.log*",
+            "yarn-debug.log*",
             "yarn-error.log*"
         )
     }
@@ -71,14 +74,14 @@ function Get-GitIgnoreContent {
     # Python
     if ((Get-ChildItem -Filter "*.py" -Recurse | Select-Object -First 1) -or (Test-Path "pyproject.toml")) {
         $ignorePatterns += @(
-            "# Python"
-            "__pycache__/"
-            "*.py[cod]"
-            "*.pyc"
-            ".Python"
-            ".env/"
-            ".venv/"
-            "venv/"
+            "# Python",
+            "__pycache__/",
+            "*.py[cod]",
+            "*.pyc",
+            ".Python",
+            ".env/",
+            ".venv/",
+            "venv/",
             "ENV/"
         )
     }
@@ -86,11 +89,11 @@ function Get-GitIgnoreContent {
     # .NET
     if (Get-ChildItem -Filter "*.csproj" -Recurse | Select-Object -First 1) {
         $ignorePatterns += @(
-            "# .NET"
-            "bin/"
-            "obj/"
-            ".vs/"
-            "*.user"
+            "# .NET",
+            "bin/",
+            "obj/",
+            ".vs/",
+            "*.user",
             "*.suo"
         )
     }
@@ -98,30 +101,29 @@ function Get-GitIgnoreContent {
     $ignorePatterns -join "`n"
 }
 
+# Main function to initialize the repository
 function Initialize-Repository {
-    # Check prerequisites
-    Write-Host "Checking prerequisites..." -ForegroundColor Cyan
+    Write-Log "Starting repository initialization..."
 
+    # Check prerequisites
+    Write-Log "Checking prerequisites..." -Level "INFO"
     if (-not (Test-CommandExists "git")) {
         throw "Git is not installed or not in PATH"
     }
-
-    # Set git configuration to allow the current directory ownership
-    Write-Host "Configuring repository ownership settings..." -ForegroundColor Cyan
-    # Set git config for safe directory using PWD (current working directory).
-    git config --global --add safe.directory $PWD
-
     if (-not (Test-CommandExists "gh")) {
-        Write-Host "GitHub CLI is not installed." -ForegroundColor Red
-        Write-Host "Please install GitHub CLI from https://cli.github.com/" -ForegroundColor Yellow
+        Write-Log "GitHub CLI is not installed. Please install it from https://cli.github.com/" -Level "ERROR"
         throw "GitHub CLI installation required"
     }
 
+    # Configure repository ownership settings
+    Write-Log "Configuring repository ownership settings..." -Level "INFO"
+    git config --global --add safe.directory $PWD
+
     # Check GitHub authentication
-    Write-Host "Checking GitHub authentication..." -ForegroundColor Cyan
+    Write-Log "Checking GitHub authentication..." -Level "INFO"
     gh auth status 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "GitHub CLI not authenticated. Initiating login..." -ForegroundColor Yellow
+        Write-Log "GitHub CLI not authenticated. Initiating login..." -Level "WARN"
         gh auth login
         if ($LASTEXITCODE -ne 0) {
             throw "GitHub authentication failed."
@@ -135,7 +137,7 @@ function Initialize-Repository {
     }
 
     # Check if repository exists
-    Write-Host "Checking if repository exists..." -ForegroundColor Cyan
+    Write-Log "Checking if repository exists..." -Level "INFO"
     try {
         gh repo view "$githubUser/$ProjectName" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
@@ -146,7 +148,7 @@ function Initialize-Repository {
         }
     } catch {
         # Repository doesn't exist, create it
-        Write-Host "Creating new repository..." -ForegroundColor Cyan
+        Write-Log "Creating new repository..." -Level "INFO"
         $isPrivate = Read-Host "Create private repository? (y/N)"
         $privateFlag = if ($isPrivate -eq 'y') { '--private' } else { '--public' }
         gh repo create "$githubUser/$ProjectName" $privateFlag --confirm
@@ -156,15 +158,15 @@ function Initialize-Repository {
     }
 
     # Initialize local repository
-    Write-Host "Initializing local repository..." -ForegroundColor Cyan
+    Write-Log "Initializing local repository..." -Level "INFO"
     if (-not (Test-Path ".git")) {
         git init
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to initialize local repository."
         }
-        Write-Host "✓ Local repository initialized successfully" -ForegroundColor Green
+        Write-Log "Local repository initialized successfully" -Level "INFO"
     } else {
-        Write-Host "✓ Local repository already exists" -ForegroundColor Green
+        Write-Log "Local repository already exists" -Level "INFO"
     }
 
     # Check for source files
@@ -177,31 +179,31 @@ function Initialize-Repository {
     }
 
     # Create or update .gitignore
-    Write-Host "Generating .gitignore..." -ForegroundColor Cyan
+    Write-Log "Generating .gitignore..." -Level "INFO"
     $gitignoreContent = Get-GitIgnoreContent
     if (Test-Path ".gitignore") {
         $existingContent = Get-Content ".gitignore" -Raw
         $gitignoreContent = "$existingContent`n$gitignoreContent"
     }
     $gitignoreContent | Set-Content ".gitignore" -Force
-    Write-Host "✓ .gitignore file created/updated successfully" -ForegroundColor Green
+    Write-Log ".gitignore file created/updated successfully" -Level "INFO"
 
     # Stage and commit changes
-    Write-Host "Staging and committing changes..." -ForegroundColor Cyan
+    Write-Log "Staging and committing changes..." -Level "INFO"
     git add .
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to stage changes."
     }
-    Write-Host "✓ Changes staged successfully" -ForegroundColor Green
+    Write-Log "Changes staged successfully" -Level "INFO"
 
     git commit -m "Initial commit"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to commit changes."
     }
-    Write-Host "✓ Initial commit created successfully" -ForegroundColor Green
+    Write-Log "Initial commit created successfully" -Level "INFO"
 
     # Set up remote and push
-    Write-Host "Setting up remote and pushing..." -ForegroundColor Cyan
+    Write-Log "Setting up remote and pushing..." -Level "INFO"
 
     # Add remote
     if (-not (git remote | Where-Object { $_ -eq "origin" })) {
@@ -209,9 +211,9 @@ function Initialize-Repository {
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to add remote."
         }
-        Write-Host "✓ Remote added successfully" -ForegroundColor Green
+        Write-Log "Remote added successfully" -Level "INFO"
     } else {
-        Write-Host "✓ Remote already exists" -ForegroundColor Green
+        Write-Log "Remote already exists" -Level "INFO"
     }
 
     # Determine default branch
@@ -235,28 +237,28 @@ function Initialize-Repository {
     # Rename local branch if needed
     $currentBranch = git branch --show-current
     if ($currentBranch -ne $defaultBranch) {
-        Write-Host "Renaming local branch from '$currentBranch' to '$defaultBranch'..." -ForegroundColor Yellow
+        Write-Log "Renaming local branch from '$currentBranch' to '$defaultBranch'..." -Level "WARN"
         git branch -m $defaultBranch
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to rename branch to '$defaultBranch'"
         }
-        Write-Host "✓ Branch renamed to '$defaultBranch' successfully" -ForegroundColor Green
+        Write-Log "Branch renamed to '$defaultBranch' successfully" -Level "INFO"
     }
 
     # Push changes
-    Write-Host "Pushing changes to $defaultBranch branch..." -ForegroundColor Cyan
+    Write-Log "Pushing changes to $defaultBranch branch..." -Level "INFO"
     git push -u origin $defaultBranch
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to push to remote repository."
     }
-    Write-Host "Changes pushed successfully to $defaultBranch branch" -ForegroundColor Green
-    Write-Host "Repository initialized at: https://github.com/$githubUser/$ProjectName" -ForegroundColor Green
+    Write-Log "Changes pushed successfully to $defaultBranch branch" -Level "INFO"
+    Write-Log "Repository initialized at: https://github.com/$githubUser/$ProjectName" -Level "INFO"
 }
 
 try {
     Initialize-Repository
 }
 catch {
-    Write-Error $_.Exception.Message
+    Write-Log $_.Exception.Message -Level "ERROR"
     exit 1
 }
